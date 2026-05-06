@@ -8,7 +8,7 @@ const prisma = new PrismaClient({
   }),
 });
 
-const raw = await prisma.raw.findFirst();
+const raw = await prisma.raw.findFirst({ orderBy: { createdAt: "desc" } });
 const headers = raw?.json as HeadersInit;
 
 type Paginate<T extends object> = {
@@ -26,33 +26,21 @@ type Paginate<T extends object> = {
 
 type Model = Prisma.ExceptionModel;
 
-type FProps = {
-  max: number;
-  retry: number;
-  payloads: unknown;
-  can: () => boolean;
-  reset: () => void;
-  delay: () => Promise<void>;
-  fetcher: (params: {
-    endpoint: "followers" | "following";
-    max_id?: string;
-  }) => Promise<Model[]>;
-  unfollow: (user: Model, k: number) => Promise<void>;
-  execute: () => Promise<void>;
-};
+class Automation {
+  private max: number = 10;
+  private retry: number = 0;
+  private payloads: unknown = {};
 
-const f: FProps = {
-  max: 10,
-  retry: 0,
-  payloads: {},
-  can() {
+  private can(): boolean {
     this.retry++;
     return this.retry <= this.max;
-  },
-  reset() {
+  }
+
+  private reset(): void {
     this.retry = 1;
-  },
-  async delay() {
+  }
+
+  private async delay(): Promise<void> {
     const min = 10;
     const max = 20;
 
@@ -62,8 +50,15 @@ const f: FProps = {
         (Math.floor(Math.random() * (max - min + 1)) + min) * 1000,
       );
     });
-  },
-  async fetcher({ endpoint, max_id }) {
+  }
+
+  private async fetcher({
+    endpoint,
+    max_id,
+  }: {
+    endpoint: "followers" | "following";
+    max_id?: string;
+  }): Promise<Model[]> {
     const id = `${process.env.USER_ID}`;
     const url = new URL(
       `https://www.instagram.com/api/v1/friendships/${id}/${endpoint}`,
@@ -116,8 +111,9 @@ const f: FProps = {
 
       return await this.fetcher({ endpoint, max_id });
     }
-  },
-  async unfollow(user: Model, k: number) {
+  }
+
+  private async unfollow(user: Model, k: number): Promise<void> {
     try {
       const body = new URLSearchParams();
       body.set("doc_id", `${process.env.DOC_ID}`);
@@ -162,8 +158,9 @@ const f: FProps = {
 
       return await this.unfollow(user, k);
     }
-  },
-  async execute() {
+  }
+
+  public async execute(): Promise<void> {
     const dc = `https://discord.com/api/webhooks/${process.env.DISCORD_WEBHOOK_ID}/${process.env.DISCORD_TOKEN}`;
     const followers = await this.fetcher({ endpoint: "followers" });
     const following = await this.fetcher({ endpoint: "following" });
@@ -223,9 +220,9 @@ const f: FProps = {
         return body;
       })(),
     });
-  },
-};
+  }
+}
 
-await f.execute();
+await new Automation().execute();
 
 process.exit(0);
