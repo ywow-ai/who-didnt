@@ -27,13 +27,13 @@ type Paginate<T extends object> = {
 type Model = Prisma.ExceptionModel;
 
 class Automation {
-  private max: number = 10;
+  private max: number = 300;
   private retry: number = 0;
   private payloads: unknown = {};
 
   private can(): boolean {
     this.retry++;
-    return this.retry <= this.max;
+    return this.retry < this.max;
   }
 
   private reset(): void {
@@ -45,10 +45,9 @@ class Automation {
     const max = 20;
 
     return new Promise<void>((resolve) => {
-      setTimeout(
-        resolve,
-        (Math.floor(Math.random() * (max - min + 1)) + min) * 1000,
-      );
+      const delay = Math.floor(Math.random() * (max - min + 1)) + min;
+      console.log("delay:", delay);
+      setTimeout(resolve, delay * 1000);
     });
   }
 
@@ -76,7 +75,7 @@ class Automation {
       });
 
       if (!response.ok) {
-        throw response.text();
+        throw await response.text();
       }
 
       const result: Paginate<Model> = await response.json();
@@ -131,11 +130,12 @@ class Automation {
       });
 
       if (!response.ok) {
-        throw response.text();
+        throw await response.text();
       }
 
       console.log(`Unfollowed ${user.username}`);
 
+      this.reset();
       return await this.delay();
     } catch (error) {
       console.log(this, error);
