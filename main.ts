@@ -57,7 +57,7 @@ class Automation {
   }: {
     endpoint: "followers" | "following";
     max_id?: string;
-  }): Promise<Model[]> {
+  }): Promise<{ data: Model[]; finish: boolean }> {
     const id = `${process.env.USER_ID}`;
     const url = new URL(
       `https://www.instagram.com/api/v1/friendships/${id}/${endpoint}`,
@@ -85,12 +85,17 @@ class Automation {
       this.reset();
       await this.delay();
 
-      return [
-        ...result.users,
-        ...(result.has_more
-          ? await this.fetcher({ endpoint, max_id: result.next_max_id })
-          : []),
-      ];
+      return {
+        data: [
+          ...result.users,
+          ...(result.has_more
+            ? await this.fetcher({ endpoint, max_id: result.next_max_id }).then(
+                ({ data }) => data,
+              )
+            : []),
+        ],
+        finish: true,
+      };
     } catch (error) {
       const isEqual = lodash.isEqual(
         Object.fromEntries(url.searchParams),
@@ -99,7 +104,7 @@ class Automation {
 
       if (isEqual && !this.can()) {
         console.log("Max attempt reached, same payload, can't retry");
-        return [];
+        return { data: [], finish: false };
       }
 
       this.payloads = Object.fromEntries(url.searchParams);
@@ -112,7 +117,7 @@ class Automation {
     }
   }
 
-  private async unfollow(user: Model, k: number): Promise<void> {
+  private async unfollow(user: Model, k: number): Promise<boolean> {
     try {
       const body = new URLSearchParams();
       body.set("doc_id", `${process.env.DOC_ID}`);
@@ -136,7 +141,9 @@ class Automation {
       console.log(`Unfollowed ${user.username}`);
 
       this.reset();
-      return await this.delay();
+      await this.delay();
+
+      return true;
     } catch (error) {
       console.log(this, error);
 
@@ -147,7 +154,8 @@ class Automation {
 
       if (isEqual && !this.can()) {
         console.log("Max attempt reached, same payload, can't retry");
-        return await this.delay();
+        await this.delay();
+        return false;
       }
 
       this.payloads = { target_user_id: user.id };
@@ -163,9 +171,19 @@ class Automation {
   public async execute(): Promise<void> {
     const dc = `https://discord.com/api/webhooks/${process.env.DISCORD_WEBHOOK_ID}/${process.env.DISCORD_TOKEN}`;
     const followers = await this.fetcher({ endpoint: "followers" });
+    if (!followers.finish) {
+      console.error("Failed to fetch followers");
+      return;
+    }
+
     const following = await this.fetcher({ endpoint: "following" });
-    const notFollowBack = following.filter(
-      ({ id: xId }) => !followers.some(({ id: yId }) => yId === xId),
+    if (!following.finish) {
+      console.error("Failed to fetch following");
+      return;
+    }
+
+    const notFollowBack = following.data.filter(
+      ({ id: xId }) => !followers.data.some(({ id: yId }) => yId === xId),
     );
 
     await fetch(dc, {
@@ -196,8 +214,14 @@ class Automation {
       (user) => !exception.some((exc) => exc.id === user.id),
     );
 
+    const unfollowDone: string[] = [];
+
     for (const [k, user] of target.entries()) {
-      await this.unfollow(user, k);
+      const result = await this.unfollow(user, k);
+      if (!result) {
+        break;
+      }
+      unfollowDone.push(user.username ?? "");
     }
 
     await fetch(dc, {
@@ -210,7 +234,7 @@ class Automation {
             embeds: [
               {
                 title: "Unfollow Done",
-                description: target.map(({ username }) => username).join(", "),
+                description: unfollowDone.join(", "),
                 color: 255,
               },
             ],
