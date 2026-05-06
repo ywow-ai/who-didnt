@@ -8,8 +8,17 @@ const prisma = new PrismaClient({
   }),
 });
 
-const raw = await prisma.raw.findFirst({ orderBy: { createdAt: "desc" } });
-const headers = raw?.json as HeadersInit;
+const latest = new Date();
+latest.setDate(latest.getDate() - 7);
+
+const raw = await prisma.raw.findFirst({
+  orderBy: { createdAt: "desc" },
+  where: { createdAt: { gte: latest } },
+});
+
+if (!raw) process.exit(0);
+
+const headers = raw.json as HeadersInit;
 
 type Paginate<T extends object> = {
   users: T[];
